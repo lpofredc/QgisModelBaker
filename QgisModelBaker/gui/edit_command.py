@@ -2,10 +2,10 @@
 """
 /***************************************************************************
                               -------------------
-        begin                : 23/03/17
+        begin                : 27.08.2020
         git sha              : :%H$
-        copyright            : (C) 2017 by OPENGIS.ch
-        email                : info@opengis.ch
+        copyright            : (C) 2020 by Dave Signer
+        email                : david at opengis ch
  ***************************************************************************/
 
 /***************************************************************************
@@ -17,21 +17,19 @@
  *                                                                         *
  ***************************************************************************/
 """
-from QgisModelBaker.libili2db.ili2dbconfig import SchemaImportConfiguration, ImportDataConfiguration, \
-    Ili2DbCommandConfiguration
-from QgisModelBaker.libili2db.iliexecutable import IliExecutable
+from QgisModelBaker.utils import get_ui_class
+
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QDialog, QListWidgetItem, QDialogButtonBox
+from qgis.gui import QgsGui
+
+DIALOG_UI = get_ui_class('edit_command.ui')
 
 
-class Importer(IliExecutable):
+class EditCommandDialog(QDialog, DIALOG_UI):
 
-    def __init__(self, dataImport=False, parent=None):
-        self.__data_import = dataImport
-        super(Importer, self).__init__(parent)
-
-    def _create_config(self) -> Ili2DbCommandConfiguration:
-        if self.__data_import:
-            configuration = ImportDataConfiguration()
-        else:
-            configuration = SchemaImportConfiguration()
-
-        return configuration
+    def __init__(self, parent=None):
+        QDialog.__init__(self, parent)
+        self.setupUi(self)
+        QgsGui.instance().enableAutoGeometryRestore(self)
+        self.button_box.button(QDialogButtonBox.Ok).setText(self.tr('Run'))

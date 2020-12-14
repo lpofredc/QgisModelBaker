@@ -28,7 +28,7 @@
 
 INTERLIS 2.3;
 
-MODEL ZG_Naturschutz_und_Erholung_V1_0 (de)
+MODEL ZG_Naturschutz_und_Erholungsinfrastruktur_V1_noMeta (de)
 AT "http://models.geo.zg.ch"
 VERSION "2018-03-27"	=
 
@@ -53,7 +53,6 @@ VERSION "2018-03-27"	=
 			Point: GeometryCHLV95_V1.Coord2;
 		END PointStructure;
 		
-		!!@ili2db.mapping=MultiPoint
 		STRUCTURE MultiPoint =
 			Points: BAG {1..*} OF PointStructure;
 		END MultiPoint;
@@ -62,7 +61,6 @@ VERSION "2018-03-27"	=
 			Line: Line;
 		END LineStructure;
 		
-		!!@ili2db.mapping=MultiLine
 		STRUCTURE MultiLine =
 			Lines: BAG {1..*} OF LineStructure;
 		END MultiLine;
@@ -71,7 +69,6 @@ VERSION "2018-03-27"	=
 			Surface: Surface;
 		END SurfaceStructure;
 		
-		!!@ili2db.mapping=MultiSurface
 		STRUCTURE MultiSurface =
 			Surfaces: BAG {1..*} OF SurfaceStructure;
 		END MultiSurface;
@@ -194,4 +191,4 @@ VERSION "2018-03-27"	=
 
 	END TransferMetadaten;
 
-END ZG_Naturschutz_und_Erholung_V1_0.
+END ZG_Naturschutz_und_Erholungsinfrastruktur_V1_noMeta.

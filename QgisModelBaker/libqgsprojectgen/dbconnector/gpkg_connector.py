@@ -100,6 +100,7 @@ class GPKGConnector(DBConnector):
                     ON cprop.tablename == g.table_name
                         WHERE cprop."tag" IN ('ch.ehi.ili2db.c1Min', 'ch.ehi.ili2db.c2Min',
                          'ch.ehi.ili2db.c1Max', 'ch.ehi.ili2db.c2Max')
+                        AND cprop.tablename = s.name
                     ORDER BY CASE TAG
                         WHEN 'ch.ehi.ili2db.c1Min' THEN 1
                         WHEN 'ch.ehi.ili2db.c2Min' THEN 2
@@ -109,7 +110,18 @@ class GPKGConnector(DBConnector):
                     ) WHERE g.geometry_type_name IS NOT NULL
                     GROUP BY tablename
                 ) AS extent,
-                substr(c.iliname, 0, instr(c.iliname, '.')) AS model,"""
+                (
+                SELECT ( CASE MAX(INSTR("setting",'.')) WHEN 0 THEN 0 ELSE MAX( LENGTH("setting") -  INSTR("setting",'.') ) END)
+                    FROM T_ILI2DB_COLUMN_PROP AS cprop
+                    LEFT JOIN gpkg_geometry_columns g
+                    ON cprop.tablename == g.table_name
+                        WHERE cprop."tag" IN ('ch.ehi.ili2db.c1Min', 'ch.ehi.ili2db.c2Min',
+                         'ch.ehi.ili2db.c1Max', 'ch.ehi.ili2db.c2Max')
+						AND cprop.tablename = s.name
+                    GROUP BY tablename
+                )  as coord_decimals,
+                substr(c.iliname, 0, instr(c.iliname, '.')) AS model,
+                attrs.sqlname as attribute_name, """
             interlis_joins = """LEFT JOIN T_ILI2DB_TABLE_PROP p
                    ON p.tablename = s.name
                       AND p.tag = 'ch.ehi.ili2db.tableKind'
@@ -117,7 +129,9 @@ class GPKGConnector(DBConnector):
                    ON alias.tablename = s.name
                       AND alias.tag = 'ch.ehi.ili2db.dispName'
                 LEFT JOIN t_ili2db_classname c
-                   ON s.name == c.sqlname """
+                   ON s.name == c.sqlname 
+                LEFT JOIN t_ili2db_attrname attrs
+                   ON c.iliname = attrs.iliname """
 
         try:
             cursor.execute("""
@@ -172,6 +186,19 @@ class GPKGConnector(DBConnector):
         cursor.close()
         return complete_records
 
+    def get_meta_attrs_info(self):
+        if not self._table_exists(GPKG_METAATTRS_TABLE):
+            return []
+
+        cursor = self.conn.cursor()
+        cursor.execute("""
+                        SELECT *
+                        FROM {meta_attr_table}
+        """.format(meta_attr_table=GPKG_METAATTRS_TABLE))
+        records = cursor.fetchall()
+        cursor.close()
+        return records
+
     def get_meta_attrs(self, ili_name):
         if not self._table_exists(GPKG_METAATTRS_TABLE):
             return []
@@ -195,6 +222,7 @@ class GPKGConnector(DBConnector):
 
         columns_prop = list()
         columns_full_name = list()
+        meta_attrs = list()
 
         if self.metadata_exists():
             cursor.execute("""
@@ -219,6 +247,9 @@ class GPKGConnector(DBConnector):
                     """.format(table_name))
             columns_full_name = cursor.fetchall()
 
+        if self.metadata_exists() and self._table_exists(GPKG_METAATTRS_TABLE):
+            meta_attrs = self.get_meta_attrs_info()
+
         complete_records = list()
         for column_info in columns_info:
             record = {}
@@ -228,10 +259,10 @@ class GPKGConnector(DBConnector):
             record['unit'] = None
             record['texttype'] = None
             record['column_alias'] = None
+            record['enum_domain'] = None
 
             if record['column_name'] == 'T_Id' and Qgis.QGIS_VERSION_INT >= 30500:
-                # The default value needs to be calculated client side,
-                # sqlite doesn't provide the means to pre-evaluate serials
+                # Calculated on client side, since sqlite doesn't provide the means to pre-evaluate serials
                 record['default_value_expression'] = "sqlite_fetch_and_increment(@layer, 'T_KEY_OBJECT', 'T_LastUniqueId', 'T_Key', 'T_Id', map('T_LastChange','date(''now'')','T_CreateDate','date(''now'')','T_User','''' || @user_account_name || ''''))"
 
             for column_full_name in columns_full_name:
@@ -247,8 +278,25 @@ class GPKGConnector(DBConnector):
                         record['texttype'] = column_prop['setting']
                     elif column_prop['tag'] == 'ch.ehi.ili2db.dispName':
                         record['column_alias'] = column_prop['setting']
+                    elif column_prop['tag'] == 'ch.ehi.ili2db.enumDomain':
+                        record['enum_domain'] = column_prop['setting']
+                    elif column_prop['tag'] == 'ch.ehi.ili2db.oidDomain':
+                        # Calculated on client side, since sqlite doesn't provide the means to pre-evaluate UUID
+                        if record['column_name'] == 'T_Ili_Tid' and column_prop['setting'] == 'INTERLIS.UUIDOID':
+                            record['default_value_expression'] = "substr(uuid(), 2, 36)"
+
+            record['attr_order'] = '999'
+            if 'fully_qualified_name' in record:  # e.g., t_id's don't have a fully qualified name
+                for meta_attr in meta_attrs:
+                    if record['fully_qualified_name'] == meta_attr['ilielement'] and \
+                            meta_attr['attr_name'] == 'form_order':
+                        record['attr_order'] = meta_attr['attr_value']
+                        break
 
             complete_records.append(record)
+
+        # Finally, let's order the records by attr_order
+        complete_records = sorted(complete_records, key=lambda k: int(k['attr_order']))
 
         cursor.close()
         return complete_records
@@ -266,7 +314,7 @@ class GPKGConnector(DBConnector):
         # fieldname: (min, max)
         res1 = re.findall(r'CHECK\((.*)\)', cursor.fetchone()[0])
         for res in res1:
-            res2 = re.search(r'(\w+) BETWEEN ([-?\d\.]+) AND ([-?\d\.]+)', res)
+            res2 = re.search(r'(\w+) BETWEEN ([-?\d\.E]+) AND ([-?\d\.E]+)', res)  # Might contain scientific notation
             if res2:
                 constraint_mapping[res2.group(1)] = (
                     res2.group(2), res2.group(3))
@@ -300,6 +348,17 @@ class GPKGConnector(DBConnector):
                                                                  record[
                                                                      'referenced_table'],
                                                                  record['referenced_column'])
+                if self._table_exists(GPKG_METAATTRS_TABLE):
+                    cursor.execute("""SELECT META_ATTRS.attr_value as strength
+                        FROM t_ili2db_attrname AS ATTRNAME 
+                        INNER JOIN t_ili2db_meta_attrs AS META_ATTRS
+                        ON META_ATTRS.ilielement = ATTRNAME.iliname AND META_ATTRS.attr_name = 'ili2db.ili.assocKind'
+                        WHERE ATTRNAME.sqlname = '{referencing_column}' AND ATTRNAME.{colowner} = '{referencing_table}' AND ATTRNAME.target = '{referenced_table}'
+                    """.format(referencing_column=foreign_key['from'],referencing_table=table_info['tablename'],
+                               referenced_table=foreign_key['table'], colowner="owner" if self.ili_version() == 3 else "colowner" ))
+                    strength_record = cursor.fetchone()
+                    record['strength'] = strength_record['strength'] if strength_record else ''
+
                 complete_records.append(record)
 
         cursor.close()
@@ -323,16 +382,24 @@ class GPKGConnector(DBConnector):
                             """)
         return cursor
 
-    def get_iliname_dbname_mapping(self, sqlnames):
-        """Used for ili2db version 3 relation creation"""
-        # Map domain ili name with its correspondent pg name
-        cursor = self.conn.cursor()
-        names = "'" + "','".join(sqlnames) + "'"
-        cursor.execute("""SELECT iliname, sqlname
-                          FROM t_ili2db_classname
-                          WHERE sqlname IN ({names})
-                       """.format(names=names))
-        return cursor
+    def get_iliname_dbname_mapping(self, sqlnames=list()):
+        """Note: the parameter sqlnames is only used for ili2db version 3 relation creation"""
+        # Map domain ili name with its correspondent sql name
+        if self.metadata_exists():
+            cursor = self.conn.cursor()
+
+            where = ''
+            if sqlnames:
+                names = "'" + "','".join(sqlnames) + "'"
+                where = 'WHERE sqlname IN ({})'.format(names)
+
+            cursor.execute("""SELECT iliname, sqlname
+                              FROM t_ili2db_classname
+                              {where}
+                           """.format(where=where))
+            return cursor
+
+        return {}
 
     def get_classili_classdb_mapping(self, models_info, extended_classes):
         """Used for ili2db version 3 relation creation"""

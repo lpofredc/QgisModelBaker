@@ -124,8 +124,17 @@ class MssqlConnector(DBConnector):
                 stmt += ln + "            END"
                 stmt += ln + "        FOR XML PATH(''),TYPE).value('(./text())[1]','VARCHAR(MAX)'),1,1,''"
                 stmt += ln + "        ) AS extent"
+                stmt += ln + "    , ( SELECT CASE MAX(CHARINDEX('.',cp.setting)) WHEN 0 THEN 0 ELSE MAX( LEN(cp.setting) -  CHARINDEX('.',cp.setting) ) END"
+                stmt += ln + "        FROM {schema}.t_ili2db_column_prop cp"
+                stmt += ln + "        WHERE tbls.table_name = cp.tablename"
+                stmt += ln + "            AND clm.COLUMN_NAME = cp.columnname"
+                stmt += ln + "            AND cp.tag IN"
+                stmt += ln + "                ('ch.ehi.ili2db.c1Min', 'ch.ehi.ili2db.c2Min',"
+                stmt += ln + "                'ch.ehi.ili2db.c1Max', 'ch.ehi.ili2db.c2Max')"
+                stmt += ln + "      ) AS coord_decimals"
                 stmt += ln + "    , tgeomtype.setting AS simple_type"
                 stmt += ln + "    , null AS formatted_type"
+                stmt += ln + "    , attrs.sqlname AS attribute_name"
             stmt += ln + "FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS Tab"
             stmt += ln + "INNER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE AS Col"
             stmt += ln + "    ON Col.Constraint_Name = Tab.Constraint_Name"
@@ -144,6 +153,8 @@ class MssqlConnector(DBConnector):
                 stmt += ln + "    AND alias.tag = 'ch.ehi.ili2db.dispName'"
                 stmt += ln + "LEFT JOIN {schema}.t_ili2db_classname AS c"
                 stmt += ln + "    ON tbls.TABLE_NAME = c.sqlname"
+                stmt += ln + "LEFT JOIN {schema}.t_ili2db_attrname AS attrs"
+                stmt += ln + "    ON c.iliname = attrs.iliname"
             stmt += ln + "LEFT JOIN INFORMATION_SCHEMA.COLUMNS AS clm"
             stmt += ln + "    ON clm.TABLE_NAME = tbls.TABLE_NAME"
             stmt += ln + "    AND clm.TABLE_SCHEMA = tbls.TABLE_SCHEMA"
@@ -242,6 +253,23 @@ class MssqlConnector(DBConnector):
 
         return cursor
 
+    def get_meta_attrs_info(self):
+        if not self._table_exists(METAATTRS_TABLE):
+            return []
+
+        result = []
+
+        if self.schema:
+            cur = self.conn.cursor()
+            cur.execute("""
+                        SELECT *
+                        FROM {schema}.{metaattrs_table};
+            """.format(schema=self.schema, metaattrs_table=METAATTRS_TABLE,))
+
+            result = self._get_dict_result(cur)
+
+        return result
+
     def get_meta_attrs(self, ili_name):
         if not self._table_exists(METAATTRS_TABLE):
             return []
@@ -267,6 +295,7 @@ class MssqlConnector(DBConnector):
         # Get all fields for this table
         if self.schema:
             metadata_exists = self.metadata_exists()
+            metaattrs_exists = self._table_exists(METAATTRS_TABLE)
             ln = "\n"
             stmt = ""
 
@@ -281,6 +310,9 @@ class MssqlConnector(DBConnector):
                 stmt += ln + "    , txttype.setting AS texttype"
                 stmt += ln + "    , alias.setting AS column_alias"
                 stmt += ln + "    , full_name.iliname AS fully_qualified_name"
+                stmt += ln + "    , enum_domain.setting as enum_domain"
+                if metaattrs_exists:
+                    stmt += ln + "    , COALESCE(CAST(form_order.attr_value AS int), 999) AS attr_order"
             stmt += ln + "    , null AS comment"
             stmt += ln + "FROM INFORMATION_SCHEMA.COLUMNS AS c"
             if metadata_exists:
@@ -299,7 +331,17 @@ class MssqlConnector(DBConnector):
                 stmt += ln + "LEFT JOIN {schema}.t_ili2db_attrname full_name"
                 stmt += ln + "    ON full_name.{}='{{table}}'".format("owner" if self.ili_version() == 3 else "colowner")
                 stmt += ln + "    AND c.column_name=full_name.sqlname"
+                stmt += ln + "LEFT JOIN {schema}.t_ili2db_column_prop enum_domain"
+                stmt += ln + "    ON c.table_name = enum_domain.tablename"
+                stmt += ln + "    AND c.column_name = enum_domain.columnname"
+                stmt += ln + "    AND enum_domain.tag = 'ch.ehi.ili2db.enumDomain'"
+                if metaattrs_exists:
+                    stmt += ln + "LEFT JOIN {schema}.t_ili2db_meta_attrs form_order"
+                    stmt += ln + "    ON full_name.iliname=form_order.ilielement AND"
+                    stmt += ln + "    form_order.attr_name='form_order'"
             stmt += ln + "WHERE TABLE_NAME = '{table}' AND TABLE_SCHEMA = '{schema}'"
+            if metadata_exists and metaattrs_exists:
+                stmt += ln + "ORDER BY attr_order;"
             stmt = stmt.format(schema=self.schema, table=table_name)
 
             cur = self.conn.cursor()
@@ -358,7 +400,18 @@ class MssqlConnector(DBConnector):
             filter_layer_where = ""
             if filter_layer_list:
                 filter_layer_where = "AND KCU1.TABLE_NAME IN ('{}')".format("','".join(filter_layer_list))
-            
+
+            strength_field = ''
+            strength_join = ''
+            if self._table_exists(METAATTRS_TABLE):
+                strength_field = ",META_ATTRS.attr_value as strength"
+                strength_join = """
+                LEFT JOIN {schema}.t_ili2db_attrname AS ATTRNAME
+                    ON ATTRNAME.sqlname = KCU1.COLUMN_NAME AND ATTRNAME.{colowner} = KCU1.TABLE_NAME AND ATTRNAME.target = KCU2.TABLE_NAME
+                LEFT JOIN {schema}.t_ili2db_meta_attrs AS META_ATTRS
+                    ON META_ATTRS.ilielement = ATTRNAME.iliname AND META_ATTRS.attr_name = 'ili2db.ili.assocKind'
+                    """.format(schema=self.schema, colowner="owner" if self.ili_version() == 3 else "colowner")
+
             query = """
                 SELECT  
                     KCU1.CONSTRAINT_NAME AS constraint_name 
@@ -367,7 +420,8 @@ class MssqlConnector(DBConnector):
                     ,KCU2.CONSTRAINT_SCHEMA AS constraint_schema
                     ,KCU2.TABLE_NAME AS referenced_table 
                     ,KCU2.COLUMN_NAME AS referenced_column 
-                    ,KCU1.ORDINAL_POSITION AS ordinal_position 
+                    ,KCU1.ORDINAL_POSITION AS ordinal_position
+                    {strength_field}
                 FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC 
 
                 INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU1 
@@ -380,27 +434,36 @@ class MssqlConnector(DBConnector):
                     AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA 
                     AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME 
                     AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION
+                {strength_join}
+                             
                 WHERE 1=1 {schema_where1} {schema_where2} {filter_layer_where}
                 order by constraint_name, ordinal_position
-                """.format(schema_where1=schema_where1, schema_where2=schema_where2, filter_layer_where=filter_layer_where)
+                """.format(schema_where1=schema_where1, schema_where2=schema_where2,
+                           filter_layer_where=filter_layer_where, strength_field=strength_field, strength_join=strength_join)
             cur.execute(query)
             result = self._get_dict_result(cur)
 
         return result
 
-    def get_iliname_dbname_mapping(self, sqlnames):
-        result = []
+    def get_iliname_dbname_mapping(self, sqlnames=list()):
+        """Note: the parameter sqlnames is only used for ili2db version 3 relation creation"""
+        result = {}
         # Map domain ili name with its correspondent mssql name
-        if self.schema:
+        if self.schema and self.metadata_exists():
             cur = self.conn.cursor()
-            names = "'" + "','".join(sqlnames) + "'"
+
+            where = ''
+            if sqlnames:
+                names = "'" + "','".join(sqlnames) + "'"
+                where = 'WHERE sqlname IN ({})'.format(names)
 
             cur.execute("""SELECT iliname, sqlname
-                            FROM {schema}.t_ili2db_classname
-                            WHERE sqlname IN ({names})
-                        """.format(schema=self.schema, names=names))
+                           FROM {schema}.t_ili2db_classname
+                           {where}
+                        """.format(schema=self.schema, where=where))
 
             result = self._get_dict_result(cur)
+
         return result
 
     def get_models(self):

@@ -35,7 +35,7 @@ from qgis.PyQt.QtCore import QCoreApplication, QSettings
 
 class Layer(object):
 
-    def __init__(self, provider, uri, name, srid, extent, geometry_column=None, wkb_type=QgsWkbTypes.Unknown, alias=None, is_domain=False, is_structure=False, is_nmrel=False, display_expression=None):
+    def __init__(self, provider, uri, name, srid, extent, geometry_column=None, wkb_type=QgsWkbTypes.Unknown, alias=None, is_domain=False, is_structure=False, is_nmrel=False, display_expression=None, coordinate_precision=None):
         self.provider = provider
         self.uri = uri
         self.name = name
@@ -62,6 +62,8 @@ class Layer(object):
 
         self.display_expression = display_expression
 
+        self.coordinate_precision = coordinate_precision
+
         self.__form = Form()
 
     def dump(self):
@@ -72,6 +74,7 @@ class Layer(object):
         definition['isstructure'] = self.is_structure
         definition['isnmrel'] = self.is_nmrel
         definition['displayexpression'] = self.display_expression
+        definition['coordinateprecision'] = self.coordinate_precision
         definition['form'] = self.__form.dump()
         return definition
 
@@ -82,6 +85,7 @@ class Layer(object):
         self.is_structure = definition['isstructure']
         self.is_nmrel = definition['isnmrel']
         self.display_expression = definition['displayexpression']
+        self.coordinate_precision = definition['coordinateprecision']
         self.__form.load(definition['form'])
 
     def create(self):
@@ -96,11 +100,17 @@ class Layer(object):
             settings.setValue("/Projections/defaultBehavior", old_proj_value)
 
             if self.srid is not None and not self.__layer.crs().authid() == "EPSG:{}".format(self.srid):
-                self.__layer.setCrs(QgsCoordinateReferenceSystem().fromEpsgId(self.srid))
+                crs = QgsCoordinateReferenceSystem().fromEpsgId(self.srid)
+                if not crs.isValid():
+                    crs = QgsCoordinateReferenceSystem(self.srid)  # Fallback
+                self.__layer.setCrs(crs)
             if self.is_domain:
                 self.__layer.setReadOnly()
             if self.display_expression:
                 self.__layer.setDisplayExpression(self.display_expression)
+            if self.coordinate_precision and self.coordinate_precision < 1:
+                self.__layer.geometryOptions().setGeometryPrecision(self.coordinate_precision)
+                self.__layer.geometryOptions().setRemoveDuplicateNodes(True)
         for field in self.fields:
             field.create(self)
 
@@ -123,7 +133,12 @@ class Layer(object):
                 break
 
         if has_tabs:
-            tab = FormTab(QCoreApplication.translate('FormTab', 'General'), 2)
+            num_fields = len([f for f in self.fields if not f.hidden])
+            if num_fields > 5:
+                num_tabs = 2
+            else:
+                num_tabs = 1
+            tab = FormTab(QCoreApplication.translate('FormTab', 'General'), num_tabs)
             for field in self.fields:
                 if not field.hidden:
                     widget = FormFieldWidget(field.alias, field.name)

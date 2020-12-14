@@ -58,10 +58,9 @@ class TestExport(unittest.TestCase):
         if result != iliexporter.Exporter.SUCCESS:
             # failed with a db created by ili2db version 3
             # fallback since of issues with --export3 argument
-            # set db version to 4 (means no special arguments like --export3) in the configuration
-            exporter.configuration.db_ili_version = 4
             # ... and enforce the Exporter to use ili2db version 3.x.x
-            result = exporter.run(3)
+            exporter.version = 3
+            result = exporter.run()
         self.assertEqual(result, iliexporter.Exporter.SUCCESS)
         self.compare_xtfs(testdata_path(
             'xtf/test_ciaf_ladm.xtf'), obtained_xtf_path)
@@ -90,7 +89,7 @@ class TestExport(unittest.TestCase):
         importer_e.configuration.ilimodels = 'CIAF_LADM'
         importer_e.configuration.dbschema = 'ciaf_ladm_e_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer_e.configuration.epsg = 3116
+        importer_e.configuration.srs_code = 3116
         importer_e.configuration.inheritance = 'smart2'
         importer_e.stdout.connect(self.print_info)
         importer_e.stderr.connect(self.print_error)
@@ -119,7 +118,7 @@ class TestExport(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -157,10 +156,9 @@ class TestExport(unittest.TestCase):
         if result != iliexporter.Exporter.SUCCESS:
             # failed with a db created by ili2db version 3
             # fallback since of issues with --export3 argument
-            # set db version to 4 (means no special arguments like --export3) in the configuration
-            exporter.configuration.db_ili_version = 4
             # ... and enforce the Exporter to use ili2db version 3.x.x
-            result = exporter.run(3)
+            exporter.version = 3
+            result = exporter.run()
         self.assertEqual(result, iliexporter.Exporter.SUCCESS)
         self.compare_xtfs(testdata_path(
             'xtf/test_ciaf_ladm.xtf'), obtained_xtf_path)
@@ -174,7 +172,7 @@ class TestExport(unittest.TestCase):
         importer.configuration.ilimodels = 'Catastro_COL_ES_V2_1_6;CIAF_LADM;ISO19107_V1_MAGNABOG'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -250,7 +248,7 @@ class TestExport(unittest.TestCase):
         importer.configuration.ilimodels = 'RoadsSimple'
         importer.configuration.dbschema = 'roads_simple_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -298,7 +296,7 @@ class TestExport(unittest.TestCase):
         importer.configuration.ilimodels = 'RoadsSimple'
         importer.configuration.dbschema = 'roads_simple_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -342,7 +340,7 @@ class TestExport(unittest.TestCase):
         importer.configuration.ilimodels = 'Catastro_COL_ES_V2_1_6;CIAF_LADM;ISO19107_V1_MAGNABOG'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -386,7 +384,7 @@ class TestExport(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -419,7 +417,8 @@ class TestExport(unittest.TestCase):
         exporter.configuration.xtffile = obtained_xtf_path
         exporter.stdout.connect(self.print_info)
         exporter.stderr.connect(self.print_error)
-        self.assertEqual(exporter.run(3), iliexporter.Exporter.SUCCESS)
+        exporter.version = 3
+        self.assertEqual(exporter.run(), iliexporter.Exporter.SUCCESS)
         self.compare_xtfs(testdata_path(
             'xtf/test_ciaf_ladm.xtf'), obtained_xtf_path)
 

@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Export Interlis</string>
+   <string>Export Interlis Data</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
    <item row="0" column="0">
@@ -58,31 +58,6 @@
      </property>
      <widget class="QWidget" name="page">
       <layout class="QGridLayout" name="gridLayout_3">
-       <item row="2" column="0">
-        <widget class="QTextBrowser" name="txtStdout">
-         <property name="openLinks">
-          <bool>false</bool>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="1">
-        <widget class="QWidget" name="widget" native="true">
-         <layout class="QGridLayout" name="gridLayout_2">
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-         </layout>
-        </widget>
-       </item>
        <item row="3" column="0">
         <layout class="QHBoxLayout" name="horizontalLayout_1">
          <item>
@@ -98,11 +73,36 @@
             <enum>Qt::Horizontal</enum>
            </property>
            <property name="standardButtons">
-            <set>QDialogButtonBox::Cancel|QDialogButtonBox::Help|QDialogButtonBox::Ok</set>
+            <set>QDialogButtonBox::Cancel|QDialogButtonBox::Help</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="export_tool_button">
+           <property name="text">
+            <string>...</string>
+           </property>
+           <property name="popupMode">
+            <enum>QToolButton::MenuButtonPopup</enum>
            </property>
           </widget>
          </item>
         </layout>
+       </item>
+       <item row="1" column="0">
+        <widget class="QGroupBox" name="db_wrapper_group_box">
+         <property name="title">
+          <string/>
+         </property>
+         <layout class="QVBoxLayout" name="db_layout"/>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QTextBrowser" name="txtStdout">
+         <property name="openLinks">
+          <bool>false</bool>
+         </property>
+        </widget>
        </item>
        <item row="0" column="0">
         <widget class="QGroupBox" name="ili_config">
@@ -151,17 +151,27 @@
            </widget>
           </item>
           <item row="1" column="2">
-           <widget class="ModelListView" name="export_models_view"/>
+           <widget class="ModelListView" name="export_models_view" native="true"/>
           </item>
          </layout>
         </widget>
        </item>
-       <item row="1" column="0">
-        <widget class="QGroupBox" name="db_wrapper_group_box">
-         <property name="title">
-          <string/>
-         </property>
-         <layout class="QVBoxLayout" name="db_layout"/>
+       <item row="0" column="1">
+        <widget class="QWidget" name="widget" native="true">
+         <layout class="QGridLayout" name="gridLayout_2">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+         </layout>
         </widget>
        </item>
       </layout>
@@ -174,6 +184,7 @@
  <customwidgets>
   <customwidget>
    <class>ModelListView</class>
+   <extends></extends>
    <header>QgisModelBaker.gui.options</header>
    <container>1</container>
   </customwidget>

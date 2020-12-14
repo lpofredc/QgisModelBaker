@@ -20,6 +20,8 @@
 import locale
 import os
 import webbrowser
+import configparser
+import pathlib
 
 from QgisModelBaker.gui.generate_project import GenerateProjectDialog
 from QgisModelBaker.gui.export import ExportDialog
@@ -44,6 +46,11 @@ class QgisModelBakerPlugin(QObject):
         QObject.__init__(self)
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
+
+        self.generate_dlg = None
+        self.export_dlg = None
+        self.importdata_dlg = None
+
         self.__generate_action = None
         self.__export_action = None
         self.__importdata_action = None
@@ -51,6 +58,10 @@ class QgisModelBakerPlugin(QObject):
         self.__help_action = None
         self.__about_action = None
         self.__separator = None
+        basepath = pathlib.Path(__file__).parent.absolute()
+        metadata = configparser.ConfigParser()
+        metadata.read(os.path.join(basepath, 'metadata.txt'))
+        self.__version__ = metadata['general']['version']
         if locale.getlocale() == (None, None):
             locale.setlocale(locale.LC_ALL, '')
 
@@ -88,6 +99,11 @@ class QgisModelBakerPlugin(QObject):
             self.tr('About'), None)
         self.__separator = QAction(None)
         self.__separator.setSeparator(True)
+
+        # set these actions checkable to visualize that the dialog is open
+        self.__generate_action.setCheckable(True)
+        self.__export_action.setCheckable(True)
+        self.__importdata_action.setCheckable(True)
 
         self.__generate_action.triggered.connect(self.show_generate_dialog)
         self.__configure_action.triggered.connect(self.show_options_dialog)
@@ -139,8 +155,49 @@ class QgisModelBakerPlugin(QObject):
         del self.__about_action
 
     def show_generate_dialog(self):
-        dlg = GenerateProjectDialog(self.iface, self.ili2db_configuration)
-        dlg.exec_()
+        if self.generate_dlg:
+            self.generate_dlg.reject()
+        else:
+            self.generate_dlg = GenerateProjectDialog(self.iface, self.ili2db_configuration, self.iface.mainWindow())
+            self.generate_dlg.setAttribute(Qt.WA_DeleteOnClose)
+            self.generate_dlg.setWindowFlags(self.generate_dlg.windowFlags() | Qt.Tool)
+            self.generate_dlg.show()
+            self.generate_dlg.finished.connect(self.generate_dialog_finished)
+            self.__generate_action.setChecked(True)
+
+    def generate_dialog_finished(self):
+        self.__generate_action.setChecked(False)
+        self.generate_dlg = None
+
+    def show_export_dialog(self):
+        if self.export_dlg:
+            self.export_dlg.reject()
+        else:
+            self.export_dlg = ExportDialog(self.ili2db_configuration, self.iface.mainWindow())
+            self.export_dlg.setAttribute(Qt.WA_DeleteOnClose)
+            self.export_dlg.setWindowFlags(self.export_dlg.windowFlags() | Qt.Tool)
+            self.export_dlg.show()
+            self.export_dlg.finished.connect(self.export_dialog_finished)
+            self.__export_action.setChecked(True)
+
+    def export_dialog_finished(self):
+        self.__export_action.setChecked(False)
+        self.export_dlg = None
+
+    def show_importdata_dialog(self):
+        if self.importdata_dlg:
+            self.importdata_dlg.reject()
+        else:
+            self.importdata_dlg = ImportDataDialog(self.iface, self.ili2db_configuration, self.iface.mainWindow())
+            self.importdata_dlg.setAttribute(Qt.WA_DeleteOnClose)
+            self.importdata_dlg.setWindowFlags(self.importdata_dlg.windowFlags() | Qt.Tool)
+            self.importdata_dlg.show()
+            self.importdata_dlg.finished.connect(self.importdata_dialog_finished)
+            self.__importdata_action.setChecked(True)
+
+    def importdata_dialog_finished(self):
+        self.__importdata_action.setChecked(False)
+        self.importdata_dlg = None
 
     def show_options_dialog(self):
         dlg = OptionsDialog(self.ili2db_configuration)
@@ -148,14 +205,6 @@ class QgisModelBakerPlugin(QObject):
             settings = QSettings()
             settings.beginGroup('QgisModelBaker/ili2db')
             self.ili2db_configuration.save(settings)
-
-    def show_export_dialog(self):
-        dlg = ExportDialog(self.ili2db_configuration)
-        dlg.exec_()
-
-    def show_importdata_dialog(self):
-        dlg = ImportDataDialog(self.iface, self.ili2db_configuration)
-        dlg.exec_()
 
     def show_help_documentation(self):
         os_language = QLocale(QSettings().value(
@@ -172,13 +221,18 @@ class QgisModelBakerPlugin(QObject):
         self.msg.setIcon(QMessageBox.Information)
         self.msg.setTextFormat(Qt.RichText)
         self.msg.setWindowTitle(self.tr('About Model Baker'))
-        self.msg.setText(self.tr(
-            """<h1>Model Baker</h1>
-        <p align="justify">Configuring QGIS layers and forms manually is a tedious and error prone process. This plugin loads database schemas with various meta
-        information to preconfigure the layer tree, widget configuration, relations and more.</p>
-        <p align="justify">This project is open source under the terms of the GPLv2 or later and the source code can be found on <a href="https://github.com/opengisch/QgisModelBaker">github</a>.</p>
-        <p align="justify">This plugin is developed by <a href="https://www.opengis.ch/">OPENGIS.ch</a> in collaboration with
-        <a href="https://www.proadmintierra.info/">Agencia de Implementación (BSF-Swissphoto AG / INCIGE S.A.S.)</a>.</p></p>"""))
+        self.msg.setText("""<h1>{title}</h1>
+        <p align="justify"><small>{version}</small></p>
+        <p align="justify">{p1}</p>
+        <p align="justify">{p2}</p>
+        <p align="justify">{p3}</p>""".format
+        (
+            title=self.tr('QGIS Model Baker'),
+            version=self.tr('Version {version}').format(version=self.__version__),
+            p1=self.tr('Configuring QGIS layers and forms manually is a tedious and error prone process. This plugin loads database schemas with various meta information to preconfigure the layer tree, widget configuration, relations and more.'),
+            p2=self.tr('This project is open source under the terms of the GPLv2 or later and the source code can be found on <a href="https://github.com/opengisch/QgisModelBaker">github</a>.'),
+            p3=self.tr('This plugin is developed by <a href="https://www.opengis.ch/">OPENGIS.ch</a> in collaboration with <a href="https://swisstierrascolombia.com">SwissTierras Colombia</a>')
+            ))
         self.msg.setStandardButtons(QMessageBox.Close)
         msg_box = self.msg.exec_()
 

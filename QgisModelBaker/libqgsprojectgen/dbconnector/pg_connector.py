@@ -81,9 +81,13 @@ class PGConnector(DBConnector):
 
     def create_db_or_schema(self, usr):
         cur = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        if usr:
+            authorization_string = ' AUTHORIZATION {}'.format(usr)
+        else:
+            authorization_string = ''
         cur.execute("""
-                    CREATE SCHEMA {} AUTHORIZATION {};
-        """.format(self.schema, usr))
+                    CREATE SCHEMA {schema}{authorization};
+        """.format(schema=self.schema, authorization=authorization_string))
         self.conn.commit()
 
     def metadata_exists(self):
@@ -125,9 +129,12 @@ class PGConnector(DBConnector):
             table_alias = ''
             ili_name = ''
             extent = ''
+            coord_decimals = ''
             alias_left_join = ''
             model_name = ''
             model_where = ''
+            attribute_name = ''
+            attribute_left_join = ''
 
             if self.metadata_exists():
                 kind_settings_field = "p.setting AS kind_settings,"
@@ -146,6 +153,14 @@ class PGConnector(DBConnector):
                     AND cprop."tag" IN ('ch.ehi.ili2db.c1Min', 'ch.ehi.ili2db.c2Min',
                      'ch.ehi.ili2db.c1Max', 'ch.ehi.ili2db.c2Max')
                 ) AS extent,""".format(self.schema)
+                coord_decimals = """(
+                    SELECT CASE MAX(position('.' in cprop.setting)) WHEN 0 THEN 0 ELSE MAX( char_length(cprop.setting) -  position('.' in cprop.setting) ) END
+                    FROM {}."t_ili2db_column_prop" AS cprop
+                    WHERE tbls.tablename = cprop.tablename
+                    AND cprop.columnname = g.f_geometry_column
+                    AND cprop."tag" IN ('ch.ehi.ili2db.c1Min', 'ch.ehi.ili2db.c2Min',
+                     'ch.ehi.ili2db.c1Max', 'ch.ehi.ili2db.c2Max')
+                ) AS coord_decimals,""".format(self.schema)
                 model_name = "left(c.iliname, strpos(c.iliname, '.')-1) AS model,"
                 domain_left_join = """LEFT JOIN {}.t_ili2db_table_prop p
                               ON p.tablename = tbls.tablename
@@ -155,10 +170,14 @@ class PGConnector(DBConnector):
                               AND alias.tag = 'ch.ehi.ili2db.dispName'""".format(self.schema)
                 model_where = """LEFT JOIN {}.t_ili2db_classname c
                       ON tbls.tablename = c.sqlname""".format(self.schema)
+                attribute_name = "attrs.sqlname as attribute_name,"
+                attribute_left_join = """LEFT JOIN {}.t_ili2db_attrname attrs
+                      ON c.iliname = attrs.iliname""".format(self.schema)
 
             schema_where = "AND schemaname = '{}'".format(self.schema)
 
             cur = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
             cur.execute("""
                         SELECT
                           tbls.schemaname AS schemaname,
@@ -171,6 +190,8 @@ class PGConnector(DBConnector):
                           {model_name}
                           {ili_name}
                           {extent}
+                          {attribute_name}
+                          {coord_decimals}
                           g.type AS simple_type,
                           format_type(ga.atttypid, ga.atttypmod) as formatted_type
                         FROM pg_catalog.pg_tables tbls
@@ -182,6 +203,7 @@ class PGConnector(DBConnector):
                         {domain_left_join}
                         {alias_left_join}
                         {model_where}
+                        {attribute_left_join}
                         LEFT JOIN public.geometry_columns g
                           ON g.f_table_schema = tbls.schemaname
                           AND g.f_table_name = tbls.tablename
@@ -190,11 +212,26 @@ class PGConnector(DBConnector):
                           AND ga.attname = g.f_geometry_column
                         WHERE i.indisprimary {schema_where}
             """.format(kind_settings_field=kind_settings_field, table_alias=table_alias,
-                       model_name=model_name, ili_name=ili_name, extent=extent, domain_left_join=domain_left_join,
-                       alias_left_join=alias_left_join, model_where=model_where,
-                       schema_where=schema_where))
+                       model_name=model_name, ili_name=ili_name, extent=extent, coord_decimals=coord_decimals, domain_left_join=domain_left_join,
+                       alias_left_join=alias_left_join, model_where=model_where, attribute_name=attribute_name,
+                       attribute_left_join=attribute_left_join, schema_where=schema_where))
 
             return self._preprocess_table(cur)
+
+        return []
+
+    def get_meta_attrs_info(self):
+        if not self._table_exists(PG_METAATTRS_TABLE):
+            return []
+
+        if self.schema:
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            cur.execute("""
+                        SELECT *
+                        FROM {schema}.{metaattrs_table};
+            """.format(schema=self.schema, metaattrs_table=PG_METAATTRS_TABLE))
+
+            return cur
 
         return []
 
@@ -250,17 +287,23 @@ class PGConnector(DBConnector):
             unit_field = ''
             text_kind_field = ''
             full_name_field = ''
+            enum_domain_field = ''
+            attr_order_field = ''
             column_alias = ''
             unit_join = ''
             text_kind_join = ''
             disp_name_join = ''
             full_name_join = ''
+            enum_domain_join = ''
+            attr_order_join = ''
+            order_by_attr_order= ''
 
             if self.metadata_exists():
                 unit_field = "unit.setting AS unit,"
                 text_kind_field = "txttype.setting AS texttype,"
                 column_alias = "alias.setting AS column_alias,"
                 full_name_field = "full_name.iliname as fully_qualified_name,"
+                enum_domain_field = "enum_domain.setting as enum_domain,"
                 unit_join = """LEFT JOIN {}.t_ili2db_column_prop unit
                                                     ON c.table_name=unit.tablename AND
                                                     c.column_name=unit.columnname AND
@@ -279,6 +322,18 @@ class PGConnector(DBConnector):
                                                             """.format(self.schema,
                                                                        "owner" if self.ili_version() == 3 else "colowner",
                                                                        table_name)
+                enum_domain_join = """LEFT JOIN {}.t_ili2db_column_prop enum_domain
+                                                    ON c.table_name=enum_domain.tablename AND
+                                                    c.column_name=enum_domain.columnname AND
+                                                    enum_domain.tag = 'ch.ehi.ili2db.enumDomain'""".format(self.schema)
+                if self._table_exists(PG_METAATTRS_TABLE):
+                    attr_order_field = "COALESCE(to_number(form_order.attr_value, '999'), 999) as attr_order,"
+                    attr_order_join = """LEFT JOIN {}.t_ili2db_meta_attrs form_order
+                                                            ON full_name.iliname=form_order.ilielement AND
+                                                            form_order.attr_name='form_order'
+                                                            """.format(self.schema)
+                    order_by_attr_order = """ORDER BY attr_order"""
+
                 fields_cur.execute("""
                     SELECT DISTINCT
                       c.column_name,
@@ -288,6 +343,8 @@ class PGConnector(DBConnector):
                       {text_kind_field}
                       {column_alias}
                       {full_name_field}
+                      {enum_domain_field}
+                      {attr_order_field}
                       pgd.description AS comment
                     FROM pg_catalog.pg_statio_all_tables st
                     LEFT JOIN information_schema.columns c ON c.table_schema=st.schemaname AND c.table_name=st.relname
@@ -296,13 +353,20 @@ class PGConnector(DBConnector):
                     {text_kind_join}
                     {disp_name_join}
                     {full_name_join}
-                    WHERE st.relid = '{schema}."{table}"'::regclass;
+                    {enum_domain_join}
+                    {attr_order_join}
+                    WHERE st.relid = '{schema}."{table}"'::regclass
+                    {order_by_attr_order};
                     """.format(schema=self.schema, table=table_name, unit_field=unit_field,
                                text_kind_field=text_kind_field, column_alias=column_alias,
-                               full_name_field=full_name_field,
+                               full_name_field=full_name_field, enum_domain_field=enum_domain_field,
+                               attr_order_field=attr_order_field,
                                unit_join=unit_join, text_kind_join=text_kind_join,
                                disp_name_join=disp_name_join,
-                               full_name_join=full_name_join))
+                               full_name_join=full_name_join,
+                               enum_domain_join=enum_domain_join,
+                               attr_order_join=attr_order_join,
+                               order_by_attr_order=order_by_attr_order))
 
                 return fields_cur
 
@@ -374,17 +438,31 @@ class PGConnector(DBConnector):
             if filter_layer_list:
                 filter_layer_where = "AND KCU1.TABLE_NAME IN ('{}')".format("','".join(filter_layer_list))
 
-            cur.execute("""SELECT RC.CONSTRAINT_NAME, KCU1.TABLE_NAME AS referencing_table, KCU1.COLUMN_NAME AS referencing_column, KCU2.CONSTRAINT_SCHEMA, KCU2.TABLE_NAME AS referenced_table, KCU2.COLUMN_NAME AS referenced_column, KCU1.ORDINAL_POSITION
+            strength_field = ''
+            strength_join = ''
+            strength_group_by = ''
+            if self._table_exists(PG_METAATTRS_TABLE):
+                strength_field = ", META_ATTRS.attr_value as strength"
+                strength_join = """
+                            LEFT JOIN {schema}.t_ili2db_attrname AS ATTRNAME
+                             ON ATTRNAME.sqlname = KCU1.COLUMN_NAME AND ATTRNAME.{colowner} = KCU1.TABLE_NAME AND ATTRNAME.target = KCU2.TABLE_NAME
+                            LEFT JOIN {schema}.t_ili2db_meta_attrs AS META_ATTRS
+                             ON META_ATTRS.ilielement = ATTRNAME.iliname AND META_ATTRS.attr_name = 'ili2db.ili.assocKind'""".format(schema=self.schema,
+                                       colowner="owner" if self.ili_version() == 3 else "colowner")
+                strength_group_by = ", META_ATTRS.attr_value"
+
+            cur.execute("""SELECT RC.CONSTRAINT_NAME, KCU1.TABLE_NAME AS referencing_table, KCU1.COLUMN_NAME AS referencing_column, KCU2.CONSTRAINT_SCHEMA, KCU2.TABLE_NAME AS referenced_table, KCU2.COLUMN_NAME AS referenced_column, KCU1.ORDINAL_POSITION{strength_field}
                             FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC
                             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU1
-                            ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME {schema_where1} {filter_layer_where}
+                             ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME {schema_where1} {filter_layer_where}
                             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU2
-                              ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME
-                              AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION {schema_where2}
-                            GROUP BY RC.CONSTRAINT_NAME, KCU1.TABLE_NAME, KCU1.COLUMN_NAME, KCU2.CONSTRAINT_SCHEMA, KCU2.TABLE_NAME, KCU2.COLUMN_NAME, KCU1.ORDINAL_POSITION
+                             ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME
+                             AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION {schema_where2}
+                            {strength_join}
+                            GROUP BY RC.CONSTRAINT_NAME, KCU1.TABLE_NAME, KCU1.COLUMN_NAME, KCU2.CONSTRAINT_SCHEMA, KCU2.TABLE_NAME, KCU2.COLUMN_NAME, KCU1.ORDINAL_POSITION{strength_group_by}
                             ORDER BY KCU1.ORDINAL_POSITION
                             """.format(schema_where1=schema_where1, schema_where2=schema_where2,
-                                       filter_layer_where=filter_layer_where))
+                                       filter_layer_where=filter_layer_where, strength_field=strength_field, strength_join=strength_join, strength_group_by=strength_group_by))
             return cur
 
         return []
@@ -408,16 +486,21 @@ class PGConnector(DBConnector):
             return cur
         return []
 
-    def get_iliname_dbname_mapping(self, sqlnames):
-        """Used for ili2db version 3 relation creation"""
+    def get_iliname_dbname_mapping(self, sqlnames=list()):
+        """Note: the parameter sqlnames is only used for ili2db version 3 relation creation"""
         # Map domain ili name with its correspondent pg name
-        if self.schema:
+        if self.schema and self.metadata_exists():
             cur = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-            names = "'" + "','".join(sqlnames) + "'"
+
+            where = ''
+            if sqlnames:
+                names = "'" + "','".join(sqlnames) + "'"
+                where = 'WHERE sqlname IN ({})'.format(names)
+
             cur.execute("""SELECT iliname, sqlname
                                FROM {schema}.t_ili2db_classname
-                               WHERE sqlname IN ({names})
-                           """.format(schema=self.schema, names=names))
+                               {where}
+                           """.format(schema=self.schema, where=where))
             return cur
 
         return {}

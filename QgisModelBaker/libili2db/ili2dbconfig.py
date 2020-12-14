@@ -102,6 +102,7 @@ class Ili2DbCommandConfiguration(object):
         self.dbhost = ''
         self.dbpwd = ''
         self.dbusr = ''
+        self.dbauthid = ''
         self.db_use_super_login = False
         self.database = ''
         self.dbschema = ''
@@ -112,6 +113,7 @@ class Ili2DbCommandConfiguration(object):
         self.tomlfile = ''
         self.dbinstance = ''
         self.db_odbc_driver = ''
+        self.disable_validation = False
 
     def to_ili2db_args(self):
 
@@ -139,9 +141,11 @@ class ExportConfiguration(Ili2DbCommandConfiguration):
     def __init__(self):
         super().__init__()
         self.xtffile = ''
+        self.with_exporttid = False
         self.iliexportmodels = ''
-        self.disable_validation = False
         self.db_ili_version = None
+        self.dataset = ''
+        self.baskets = list()
 
     def to_ili2db_args(self, extra_args=[], with_action=True):
         args = list()
@@ -154,11 +158,20 @@ class ExportConfiguration(Ili2DbCommandConfiguration):
         if self.disable_validation:
             args += ["--disableValidation"]
 
+        if self.with_exporttid:
+            args += ["--exportTid"]
+
         if self.iliexportmodels:
             args += ["--exportModels", self.iliexportmodels]
 
         if self.db_ili_version == 3:
             args += ["--export3"]
+
+        if self.dataset:
+            args += ["--dataset", self.dataset]
+
+        if self.baskets:
+            args += ["--baskets", ';'.join(self.baskets)]
 
         args += Ili2DbCommandConfiguration.to_ili2db_args(self)
 
@@ -174,9 +187,12 @@ class SchemaImportConfiguration(Ili2DbCommandConfiguration):
         self.inheritance = 'smart1'
         self.create_basket_col = False
         self.create_import_tid = True
-        self.epsg = 21781  # Default EPSG code in ili2pg
+        self.srs_auth = 'EPSG'  # Default SRS auth in ili2db
+        self.srs_code = 21781  # Default SRS code in ili2db
         self.stroke_arcs = True
         self.db_ili_version = None
+        self.pre_script = ''
+        self.post_script = ''
 
     def to_ili2db_args(self, extra_args=[], with_action=True):
         """
@@ -192,16 +208,22 @@ class SchemaImportConfiguration(Ili2DbCommandConfiguration):
 
         args += ["--coalesceCatalogueRef"]
         args += ["--createEnumTabs"]
-        args += ["--createNumChecks"]
+
+        if self.disable_validation:
+            args += ["--sqlEnableNull"]
+
+        else:
+            args += ["--createNumChecks"]
+            args += ["--createUnique"]
+            args += ["--createFk"]
+
+        args += ["--createFkIdx"]
         args += ["--coalesceMultiSurface"]
         args += ["--coalesceMultiLine"]
         args += ["--coalesceMultiPoint"]
         args += ["--coalesceArray"]
         args += ["--beautifyEnumDispName"]
-        args += ["--createUnique"]
         args += ["--createGeomIdx"]
-        args += ["--createFk"]
-        args += ["--createFkIdx"]
         args += ["--createMetaInfo"]
         args += ["--expandMultilingual"]
         if self.db_ili_version is None or self.db_ili_version > 3:
@@ -225,8 +247,16 @@ class SchemaImportConfiguration(Ili2DbCommandConfiguration):
         if self.create_basket_col:
             args += ["--createBasketCol"]
 
-        if self.epsg != 21781:
-            args += ["--defaultSrsCode", "{}".format(self.epsg)]
+        if self.srs_auth != 'EPSG':
+            args += ["--defaultSrsAuth", self.srs_auth]
+
+        args += ["--defaultSrsCode", "{}".format(self.srs_code)]
+
+        if self.pre_script:
+            args += ["--preScript", self.pre_script]
+
+        if self.post_script:
+            args += ["--postScript", self.post_script]
 
         args += Ili2DbCommandConfiguration.to_ili2db_args(self)
 
@@ -242,7 +272,10 @@ class ImportDataConfiguration(SchemaImportConfiguration):
         super().__init__()
         self.xtffile = ''
         self.delete_data = False
-        self.disable_validation = False
+        self.with_importtid = False
+        self.dataset = ''
+        self.baskets = list()
+        self.with_schemaimport = False
 
     def to_ili2db_args(self, extra_args=[], with_action=True):
         args = list()
@@ -250,8 +283,8 @@ class ImportDataConfiguration(SchemaImportConfiguration):
         if with_action:
             args += ["--import"]
 
-        # No schema import, see https://github.com/opengisch/QgisModelBaker/issues/322
-        # args += ["--doSchemaImport"]
+        if self.with_schemaimport:
+            args += ["--doSchemaImport"]
 
         if self.disable_validation:
             args += ["--disableValidation"]
@@ -259,7 +292,52 @@ class ImportDataConfiguration(SchemaImportConfiguration):
         if self.delete_data:
             args += ["--deleteData"]
 
+        if self.with_importtid:
+            args += ["--importTid"]
+
+        if self.dataset:
+            args += ["--dataset", self.dataset]
+
+        if self.baskets:
+            args += ["--baskets", ';'.join(self.baskets)]
+
         args += SchemaImportConfiguration.to_ili2db_args(self, extra_args=extra_args, with_action=False)
+
+        args += [self.xtffile]
+
+        return args
+
+
+class UpdateDataConfiguration(Ili2DbCommandConfiguration):
+
+    def __init__(self):
+        super().__init__()
+        self.xtffile = ''
+        self.dataset = ''
+        self.with_importtid = False
+        self.with_importbid = False
+        self.db_ili_version = None
+
+    def to_ili2db_args(self, extra_args=[], with_action=True):
+        args = list()
+
+        if with_action:
+            args += ["--update"]
+
+        args += extra_args
+
+        if self.disable_validation:
+            args += ["--disableValidation"]
+
+        if self.with_importtid:
+            args += ["--importTid"]
+
+        if self.with_importbid:
+            args += ["--importBid"]
+
+        args += ["--dataset", self.dataset]
+
+        args += Ili2DbCommandConfiguration.to_ili2db_args(self)
 
         args += [self.xtffile]
 

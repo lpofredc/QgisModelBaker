@@ -52,7 +52,7 @@ class TestImport(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -85,7 +85,6 @@ class TestImport(unittest.TestCase):
             """.format(importer.configuration.dbschema))
         record = next(cursor)
         self.assertIsNotNone(record)
-        self.assertEqual(record[0], 38)  # t_id for 'Unidad_Derecho'
         self.assertEqual(record[1], 'POLYGON((1000257.426 1002020.376,1000437.688 1002196.495,1000275.472 1002428.19,1000072.25 1002291.539,1000158.572 1002164.914,1000159.942 1002163.128,1000257.426 1002020.376))')
         self.assertEqual(record[2], 3116)
         predio_id = record[3]
@@ -110,7 +109,6 @@ class TestImport(unittest.TestCase):
             """.format(importer.configuration.dbschema))
         record = next(cursor)
         self.assertIsNotNone(record)
-        self.assertEqual(record[0], 5)  # t_id for 'Posesion'
         self.assertEqual(record[1], persona_id)  # FK persona
         self.assertEqual(record[2], predio_id)  # FK predio
 
@@ -123,7 +121,7 @@ class TestImport(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_gpkg.gpkg')
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -153,7 +151,6 @@ class TestImport(unittest.TestCase):
         cursor.execute("SELECT tipo, st_srid(geometria), t_id FROM predio")
         for record in cursor:
             count += 1
-            self.assertEqual(record[0], 2)  # t_id for 'Unidad_Derecho'
             self.assertEqual(record[1], 3116)
             predio_id = record[2]
 
@@ -170,7 +167,6 @@ class TestImport(unittest.TestCase):
         cursor.execute("select tipo, interesado, unidad from derecho")
         for record in cursor:
             count += 1
-            self.assertEqual(record[0], 5)  # t_id for 'Posesion'
             self.assertEqual(record[1], persona_id)
             self.assertEqual(record[2], predio_id)
 
@@ -188,7 +184,7 @@ class TestImport(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)

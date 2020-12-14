@@ -57,8 +57,8 @@ class PgFactory(DbFactory):
                     _db_connector.create_db_or_schema(configuration.dbusr)
                     result = True
 
-            except (DBConnectorError, FileNotFoundError):
-                message = QCoreApplication.translate("PgFactory", "There was an error generating schema with superuser. Check superuser login parameters from settings > General.")
+            except (DBConnectorError, FileNotFoundError) as e:
+                message = QCoreApplication.translate("PgFactory", "There was an error generating schema with superuser. Check superuser login parameters from settings > General.\n\nReason:\n\n{}").format(str(e))
 
         return result, message
 
@@ -67,7 +67,7 @@ class PgFactory(DbFactory):
         message = ''
 
         config_manager = self.get_db_command_config_manager(configuration)
-        uri = config_manager.get_uri()
+        uri = config_manager.get_uri(configuration.db_use_super_login)
 
         connector = self.get_db_connector(uri, configuration.dbschema)
 
@@ -86,11 +86,11 @@ class PgFactory(DbFactory):
         if db_ili_version == 3:
             return '3.11.2'
         else:
-            return '4.4.2'
+            return '4.4.4'
 
     def get_tool_url(self, db_ili_version):
         """Returns download url of ili2pg.
 
         :return str A download url.
         """
-        return 'http://www.eisenhutinformatik.ch/interlis/ili2pg/ili2pg-{version}.zip'.format(version=self.get_tool_version(db_ili_version))
+        return 'https://downloads.interlis.ch/ili2pg/ili2pg-{version}.zip'.format(version=self.get_tool_version(db_ili_version))

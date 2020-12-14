@@ -23,11 +23,14 @@ import shutil
 import tempfile
 import logging
 
+from qgis.core import QgsProject
+from qgis.testing import unittest, start_app
+
+from QgisModelBaker.libqgsprojectgen.dataobjects import Project
 from QgisModelBaker.libili2db import iliimporter
 from QgisModelBaker.libili2db.globals import DbIliMode
 from QgisModelBaker.tests.utils import iliimporter_config, testdata_path, get_pg_connection_string
 from QgisModelBaker.libqgsprojectgen.generator.generator import Generator
-from qgis.testing import unittest, start_app
 from QgisModelBaker.libqgsprojectgen.db_factory.gpkg_command_config_manager import GpkgCommandConfigManager
 
 start_app()
@@ -49,7 +52,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -73,7 +76,8 @@ class TestDomainClassRelation(unittest.TestCase):
                                     "name": "{}_{}_fkey".format(
                                         relation.referencing_layer.name,
                                         relation.referencing_field
-                                    )})
+                                    ),
+                                    "child_domain_name": relation.child_domain_name})
 
         expected_relations = list()  # 6 domain-class relations are expected
         # Domain from the same model, out of the topic
@@ -81,37 +85,43 @@ class TestDomainClassRelation(unittest.TestCase):
                                    "referenced_layer": "avaluo_usotipo",
                                    "referencing_field": "uso",
                                    "referenced_field": "t_id",
-                                   "name": "avaluo_uso_fkey"})
+                                   "name": "avaluo_uso_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from superclass and from another model
         expected_relations.append({"referencing_layer": "derecho",
                                    "referenced_layer": "col_derechotipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "t_id",
-                                   "name": "derecho_tipo_fkey"})
+                                   "name": "derecho_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain from another model
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "col_interesadodocumentotipo",
                                    "referencing_field": "documento_tipo",
                                    "referenced_field": "t_id",
-                                   "name": "persona_documento_tipo_fkey"})
+                                   "name": "persona_documento_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain from another model
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "col_genero",
                                    "referencing_field": "genero",
                                    "referenced_field": "t_id",
-                                   "name": "persona_genero_fkey"})
+                                   "name": "persona_genero_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from abstract class
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "la_interesadotipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "t_id",
-                                   "name": "persona_tipo_fkey"})
+                                   "name": "persona_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from abstract class
         expected_relations.append({"referencing_layer": "predio",
                                    "referenced_layer": "la_baunittipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "t_id",
-                                   "name": "predio_tipo_fkey"})
+                                   "name": "predio_tipo_fkey",
+                                   "child_domain_name": None})
 
         for expected_relation in expected_relations:
             self.assertIn(expected_relation, relations_dicts)
@@ -125,7 +135,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -190,6 +200,73 @@ class TestDomainClassRelation(unittest.TestCase):
         for expected_relation in expected_relations:
             self.assertIn(expected_relation, relations_dicts)
 
+    def test_extended_domain_postgis(self):
+        # Schema Import
+        importer = iliimporter.Importer()
+        importer.tool = DbIliMode.ili2pg
+        importer.configuration = iliimporter_config(importer.tool, 'ilimodels')
+        importer.configuration.ilimodels = 'Colors'
+        importer.configuration.dbschema = 'colors_{:%Y%m%d%H%M%S%f}'.format(
+            datetime.datetime.now())
+        importer.configuration.inheritance = 'smart2'
+        importer.stdout.connect(self.print_info)
+        importer.stderr.connect(self.print_error)
+        self.assertEqual(importer.run(), iliimporter.Importer.SUCCESS)
+
+        generator = Generator(DbIliMode.ili2pg,
+                              get_pg_connection_string(),
+                              importer.configuration.inheritance,
+                              importer.configuration.dbschema)
+
+        available_layers = generator.layers()
+        relations, _ = generator.relations(available_layers)
+
+        # Check domain class relations in the relations list
+        relations_dicts = list()
+        for relation in relations:
+            relations_dicts.append({"referencing_layer": relation.referencing_layer.name,
+                                    "referenced_layer": relation.referenced_layer.name,
+                                    "referencing_field": relation.referencing_field,
+                                    "referenced_field": relation.referenced_field,
+                                    "name": "{}_{}_fkey".format(
+                                        relation.referencing_layer.name,
+                                        relation.referencing_field
+                                    ),
+                                    "child_domain_name": relation.child_domain_name})
+
+        expected_relations = list()  # 1 domain-class relation is expected
+        expected_relations.append({'referencing_layer': 'childcolor',
+                                   'referenced_layer': 'dombasecolortype',
+                                   'referencing_field': 'colortype',
+                                   'referenced_field': 't_id',
+                                   'name': 'childcolor_colortype_fkey',
+                                   'child_domain_name': 'Colors.DomChildColorType'})
+
+        self.assertEqual(len(expected_relations), len(relations_dicts))
+
+        for expected_relation in expected_relations:
+            self.assertIn(expected_relation, relations_dicts)
+
+        legend = generator.legend(available_layers)
+
+        project = Project()
+        project.layers = available_layers
+        project.relations = relations
+        project.legend = legend
+        project.post_generate()
+
+        qgis_project = QgsProject.instance()
+        project.create(None, qgis_project)
+
+        count = 0
+        for layer in available_layers:
+            if layer.name == 'childcolor':
+                config = layer.layer.fields().field('colortype').editorWidgetSetup().config()
+                self.assertEqual(config['FilterExpression'], '"thisclass" = \'Colors.DomChildColorType\'')
+                count += 1
+
+        self.assertEqual(count, 1)
+
     def test_domain_class_relations_geopackage(self):
         # Schema Import
         importer = iliimporter.Importer()
@@ -200,7 +277,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_gpkg_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -226,7 +303,8 @@ class TestDomainClassRelation(unittest.TestCase):
                                     "name": "{}_{}_fkey".format(
                                         relation.referencing_layer.name,
                                         relation.referencing_field
-                                    )})
+                                    ),
+                                    "child_domain_name": relation.child_domain_name})
 
         expected_relations = list()  # 6 domain-class relations are expected
         # Domain from the same model, out of the topic
@@ -234,37 +312,43 @@ class TestDomainClassRelation(unittest.TestCase):
                                    "referenced_layer": "avaluo_usotipo",
                                    "referencing_field": "uso",
                                    "referenced_field": "T_Id",
-                                   "name": "avaluo_uso_fkey"})
+                                   "name": "avaluo_uso_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from superclass and from another model
         expected_relations.append({"referencing_layer": "derecho",
                                    "referenced_layer": "col_derechotipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "derecho_tipo_fkey"})
+                                   "name": "derecho_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain from another model
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "col_interesadodocumentotipo",
                                    "referencing_field": "documento_tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "persona_documento_tipo_fkey"})
+                                   "name": "persona_documento_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain from another model
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "col_genero",
                                    "referencing_field": "genero",
                                    "referenced_field": "T_Id",
-                                   "name": "persona_genero_fkey"})
+                                   "name": "persona_genero_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from abstract class
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "la_interesadotipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "persona_tipo_fkey"})
+                                   "name": "persona_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from abstract class
         expected_relations.append({"referencing_layer": "predio",
                                    "referenced_layer": "la_baunittipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "predio_tipo_fkey"})
+                                   "name": "predio_tipo_fkey",
+                                   "child_domain_name": None})
 
         for expected_relation in expected_relations:
             self.assertIn(expected_relation, relations_dicts)
@@ -279,7 +363,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -346,6 +430,76 @@ class TestDomainClassRelation(unittest.TestCase):
         for expected_relation in expected_relations:
             self.assertIn(expected_relation, relations_dicts)
 
+    def test_extended_domain_geopackage(self):
+        # Schema Import
+        importer = iliimporter.Importer()
+        importer.tool = DbIliMode.ili2gpkg
+        importer.configuration = iliimporter_config(
+            importer.tool, 'ilimodels')
+        importer.configuration.ilimodels = 'Colors'
+        importer.configuration.dbfile = os.path.join(
+            self.basetestpath, 'tmp_colors_gpkg_{:%Y%m%d%H%M%S%f}.gpkg'.format(
+                datetime.datetime.now()))
+        importer.configuration.inheritance = 'smart2'
+        importer.stdout.connect(self.print_info)
+        importer.stderr.connect(self.print_error)
+        self.assertEqual(importer.run(), iliimporter.Importer.SUCCESS)
+
+        config_manager = GpkgCommandConfigManager(importer.configuration)
+        uri = config_manager.get_uri()
+
+        generator = Generator(DbIliMode.ili2gpkg,
+                              uri,
+                              importer.configuration.inheritance)
+
+        available_layers = generator.layers()
+        relations, _ = generator.relations(available_layers)
+
+        # Check domain class relations in the relations list
+        relations_dicts = list()
+        for relation in relations:
+            relations_dicts.append({"referencing_layer": relation.referencing_layer.name,
+                                    "referenced_layer": relation.referenced_layer.name,
+                                    "referencing_field": relation.referencing_field,
+                                    "referenced_field": relation.referenced_field,
+                                    "name": "{}_{}_fkey".format(
+                                        relation.referencing_layer.name,
+                                        relation.referencing_field
+                                    ),
+                                    "child_domain_name": relation.child_domain_name})
+
+        expected_relations = list()  # 1 domain-class relation is expected
+        expected_relations.append({'referencing_layer': 'childcolor',
+                                   'referenced_layer': 'dombasecolortype',
+                                   'referencing_field': 'colortype',
+                                   'referenced_field': 'T_Id',
+                                   'name': 'childcolor_colortype_fkey',
+                                   'child_domain_name': 'Colors.DomChildColorType'})
+
+        self.assertEqual(len(expected_relations), len(relations_dicts))
+
+        for expected_relation in expected_relations:
+            self.assertIn(expected_relation, relations_dicts)
+
+        legend = generator.legend(available_layers)
+
+        project = Project()
+        project.layers = available_layers
+        project.relations = relations
+        project.legend = legend
+        project.post_generate()
+
+        qgis_project = QgsProject.instance()
+        project.create(None, qgis_project)
+
+        count = 0
+        for layer in available_layers:
+            if layer.name == 'childcolor':
+                config = layer.layer.fields().field('colortype').editorWidgetSetup().config()
+                self.assertEqual(config['FilterExpression'], '"thisclass" = \'Colors.DomChildColorType\'')
+                count += 1
+
+        self.assertEqual(count, 1)
 
     def test_domain_class_relations_mssql(self):
         # Schema Import
@@ -356,7 +510,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -384,7 +538,8 @@ class TestDomainClassRelation(unittest.TestCase):
                                     "referenced_layer": relation.referenced_layer.name,
                                     "referencing_field": relation.referencing_field,
                                     "referenced_field": relation.referenced_field,
-                                    "name": relation.name})
+                                    "name": relation.name,
+                                    "child_domain_name": relation.child_domain_name})
 
         expected_relations = list()  # 6 domain-class relations are expected
         # Domain from the same model, out of the topic
@@ -392,37 +547,43 @@ class TestDomainClassRelation(unittest.TestCase):
                                    "referenced_layer": "avaluo_usotipo",
                                    "referencing_field": "uso",
                                    "referenced_field": "T_Id",
-                                   "name": "avaluo_uso_fkey"})
+                                   "name": "avaluo_uso_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from superclass and from another model
         expected_relations.append({"referencing_layer": "derecho",
                                    "referenced_layer": "col_derechotipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "derecho_tipo_fkey"})
+                                   "name": "derecho_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain from another model
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "col_interesadodocumentotipo",
                                    "referencing_field": "documento_tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "persona_documento_tipo_fkey"})
+                                   "name": "persona_documento_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain from another model
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "col_genero",
                                    "referencing_field": "genero",
                                    "referenced_field": "T_Id",
-                                   "name": "persona_genero_fkey"})
+                                   "name": "persona_genero_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from abstract class
         expected_relations.append({"referencing_layer": "persona",
                                    "referenced_layer": "la_interesadotipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "persona_tipo_fkey"})
+                                   "name": "persona_tipo_fkey",
+                                   "child_domain_name": None})
         # Domain inherited from abstract class
         expected_relations.append({"referencing_layer": "predio",
                                    "referenced_layer": "la_baunittipo",
                                    "referencing_field": "tipo",
                                    "referenced_field": "T_Id",
-                                   "name": "predio_tipo_fkey"})
+                                   "name": "predio_tipo_fkey",
+                                   "child_domain_name": None})
 
         for expected_relation in expected_relations:
             self.assertIn(expected_relation, relations_dicts)
@@ -436,7 +597,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'CIAF_LADM'
         importer.configuration.dbschema = 'ciaf_ladm_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 3116
+        importer.configuration.srs_code = 3116
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -508,6 +669,77 @@ class TestDomainClassRelation(unittest.TestCase):
         for expected_relation in expected_relations:
             self.assertIn(expected_relation, relations_dicts)
 
+    def test_extended_domain_mssql(self):
+        # Schema Import
+        importer = iliimporter.Importer()
+        importer.tool = DbIliMode.ili2mssql
+        importer.configuration = iliimporter_config(
+            importer.tool, 'ilimodels')
+        importer.configuration.ilimodels = 'Colors'
+        importer.configuration.dbschema = 'colors_{:%Y%m%d%H%M%S%f}'.format(
+            datetime.datetime.now())
+        importer.configuration.inheritance = 'smart2'
+        importer.stdout.connect(self.print_info)
+        importer.stderr.connect(self.print_error)
+        self.assertEqual(importer.run(), iliimporter.Importer.SUCCESS)
+
+        uri = 'DRIVER={drv};SERVER={server};DATABASE={db};UID={uid};PWD={pwd}'\
+            .format(drv="{ODBC Driver 17 for SQL Server}",
+                    server="mssql",
+                    db=importer.configuration.database,
+                    uid=importer.configuration.dbusr,
+                    pwd=importer.configuration.dbpwd)
+
+        generator = Generator(DbIliMode.ili2mssql, uri,
+                              importer.configuration.inheritance,
+                              importer.configuration.dbschema)
+
+        available_layers = generator.layers()
+        relations, _ = generator.relations(available_layers)
+
+        # Check domain class relations in the relations list
+        relations_dicts = list()
+        for relation in relations:
+            relations_dicts.append({"referencing_layer": relation.referencing_layer.name,
+                                    "referenced_layer": relation.referenced_layer.name,
+                                    "referencing_field": relation.referencing_field,
+                                    "referenced_field": relation.referenced_field,
+                                    "name": relation.name,
+                                    "child_domain_name": relation.child_domain_name})
+
+        expected_relations = list()  # 1 domain-class relation is expected
+        expected_relations.append({'referencing_layer': 'childcolor',
+                                   'referenced_layer': 'dombasecolortype',
+                                   'referencing_field': 'colortype',
+                                   'referenced_field': 'T_Id',
+                                   'name': 'childcolor_colortype_fkey',
+                                   'child_domain_name': 'Colors.DomChildColorType'})
+
+        self.assertEqual(len(expected_relations), len(relations_dicts))
+
+        for expected_relation in expected_relations:
+            self.assertIn(expected_relation, relations_dicts)
+
+        legend = generator.legend(available_layers)
+
+        project = Project()
+        project.layers = available_layers
+        project.relations = relations
+        project.legend = legend
+        project.post_generate()
+
+        qgis_project = QgsProject.instance()
+        project.create(None, qgis_project)
+
+        count = 0
+        for layer in available_layers:
+            if layer.name == 'childcolor':
+                config = layer.layer.fields().field('colortype').editorWidgetSetup().config()
+                self.assertEqual(config['FilterExpression'], '"thisclass" = \'Colors.DomChildColorType\'')
+                count += 1
+
+        self.assertEqual(count, 1)
+
     def test_domain_class_relations_ZG_Abfallsammelstellen_ZEBA_V1_postgis(self):
         # Schema Import
         importer = iliimporter.Importer()
@@ -518,7 +750,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'Abfallsammelstellen_ZEBA_LV03_V1'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -604,7 +836,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'Abfallsammelstellen_ZEBA_LV03_V1'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -689,7 +921,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_gpkg_2_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -778,7 +1010,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_gpkg_2_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -860,11 +1092,11 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.tool = DbIliMode.ili2pg
         importer.configuration = iliimporter_config(importer.tool)
         importer.configuration.ilifile = testdata_path(
-            'ilimodels/repo/ZG_Naturschutz_und_Erholung_V1_0.ili')
-        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholung_V1_0'
+            'ilimodels/ZG_Naturschutz_und_Erholungsinfrastruktur_V1.ili')
+        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholungsinfrastruktur_V1'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -976,11 +1208,11 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.tool = DbIliMode.ili2pg
         importer.configuration = iliimporter_config(importer.tool)
         importer.configuration.ilifile = testdata_path(
-            'ilimodels/repo/ZG_Naturschutz_und_Erholung_V1_0.ili')
-        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholung_V1_0'
+            'ilimodels/ZG_Naturschutz_und_Erholungsinfrastruktur_V1.ili')
+        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholungsinfrastruktur_V1'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -1090,12 +1322,12 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.tool = DbIliMode.ili2gpkg
         importer.configuration = iliimporter_config(importer.tool)
         importer.configuration.ilifile = testdata_path(
-            'ilimodels/repo/ZG_Naturschutz_und_Erholung_V1_0.ili')
-        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholung_V1_0'
+            'ilimodels/ZG_Naturschutz_und_Erholungsinfrastruktur_V1.ili')
+        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholungsinfrastruktur_V1'
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_bags_of_enum_gpkg_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -1209,12 +1441,12 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.tool = DbIliMode.ili2gpkg
         importer.configuration = iliimporter_config(importer.tool)
         importer.configuration.ilifile = testdata_path(
-            'ilimodels/repo/ZG_Naturschutz_und_Erholung_V1_0.ili')
-        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholung_V1_0'
+            'ilimodels/ZG_Naturschutz_und_Erholungsinfrastruktur_V1.ili')
+        importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholungsinfrastruktur_V1'
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_bags_of_enum_gpkg_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -1330,7 +1562,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'KbS_LV95_V1_3'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -1405,7 +1637,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'KbS_LV95_V1_3'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -1479,7 +1711,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_bags_of_enum_kbs_lv95_v1_3_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -1557,7 +1789,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.dbfile = os.path.join(
             self.basetestpath, 'tmp_import_bags_of_enum_kbs_lv95_v1_3_{:%Y%m%d%H%M%S%f}.gpkg'.format(
                 datetime.datetime.now()))
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -1635,7 +1867,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'Hazard_Mapping_LV95_V1_2'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 2056
+        importer.configuration.srs_code = 2056
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -1925,7 +2157,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'Hazard_Mapping_LV95_V1_2'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 2056
+        importer.configuration.srs_code = 2056
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
@@ -2210,7 +2442,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholungsinfrastruktur_V1'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.stdout.connect(self.print_info)
         importer.stderr.connect(self.print_error)
@@ -2283,7 +2515,7 @@ class TestDomainClassRelation(unittest.TestCase):
         importer.configuration.ilimodels = 'ZG_Naturschutz_und_Erholungsinfrastruktur_V1'
         importer.configuration.dbschema = 'any_{:%Y%m%d%H%M%S%f}'.format(
             datetime.datetime.now())
-        importer.configuration.epsg = 21781
+        importer.configuration.srs_code = 21781
         importer.configuration.inheritance = 'smart2'
         importer.configuration.db_ili_version = 3
         importer.stdout.connect(self.print_info)
